@@ -1,0 +1,308 @@
+---
+title: "Figure-3"
+author: "Mac Campbell"
+date: "September 9, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+## Timetree of hosts with loci indicated
+
+```{r}
+library(tidyverse)
+library(ggtree)
+library(phytools)
+library(ggrepel)
+library(ggpubr)
+library(viridis)
+```
+
+
+### Organizing needed info    
+
+Get side data.
+
+```{r}
+ichthama<-read_tsv("~/github/Parvoviridae-GLUE/tabular/eve/hamaparvovirinae/epv-ichthama-side-data.tsv") %>%
+  select(host_species, sequenceID, locus_name, host_class, host_order) %>%  rename(organism=host_species) %>% 
+  rename(Class=host_class) %>%
+  mutate(virus_genus = "Ichthamaparvovirus")
+
+amdo<-read_tsv("~/github/Parvoviridae-GLUE/tabular/eve/parvovirinae/epv-amdo-side-data.tsv") %>% 
+  select(organism, sequenceID, locus_name, host_class, host_order) %>%  rename(Class=host_class) %>% 
+  mutate(virus_genus = "Amdoparvovirus")
+
+dependo<-read_tsv("~/github/Parvoviridae-GLUE/tabular/eve/parvovirinae/epv-dependo-side-data.tsv") %>%
+    select(organism, sequenceID, locus_name, host_class, host_order) %>% mutate(virus_genus="Dependoparvovirus") %>%
+    rename(Class=host_class) 
+
+erythro<-read_tsv("~/github/Parvoviridae-GLUE/tabular/eve/parvovirinae/epv-erythro-side-data.tsv") %>% 
+  select(organism, sequenceID, locus_name, host_class, host_order) %>% 
+  mutate(virus_genus = "Erythroparvovirus") %>% rename(Class=host_class)
+
+proto<-read_tsv("~/github/Parvoviridae-GLUE/tabular/eve/parvovirinae/epv-proto-side-data.tsv")  %>%
+  select(host_species, sequenceID, locus_name, host_class, host_order) %>%
+  rename(organism=host_species) %>% 
+  rename(Class=host_class) %>%
+  mutate(virus_genus="Protoparvovirus")
+
+#unclassified
+
+unc<-read_tsv("~/github/Parvoviridae-GLUE/tabular/eve/parvovirinae/epv-unc-parvo-side-data.tsv") %>%
+  select(host_species, sequenceID, locus_name, host_class, host_order) %>%
+  rename(organism=host_species) %>% 
+  rename(Class=host_class) %>%
+  mutate(virus_genus="Unclassified")
+
+#missing #Actually Scyliorhinus_torazame, Tetraodon and Latimeria
+
+organism<-c("Latimeria_chalumnae","Tetraodon_nigroviridis","Takifugu_flavidus","Takifugu_rubripes","Scyliorhinus_torazame") 
+sequenceID<-c("Unknown.1-Latimeria","Unknown.2-Tetraodontidae","Unknown.2-Tetraodontidae",
+             "Unknown.2-Tetraodontidae","Unknown.3-Shark")
+locus_name<-sequenceID
+
+Class<-c("Sarcopterygii","Actinopterygii","Actinopterygii","Actinopterygii","Chondrichthyes")
+host_order<-c("Coelacanthiformes","Tetraodontiformes","Tetraodontiformes","Tetraodontiformes","Carcharhiniformes")
+uns<-cbind(organism, sequenceID, locus_name, Class, host_order) %>% as_tibble() %>% mutate(virus_genus="Unclassified")
+
+```
+
+Merging    
+
+```{r}
+data<-bind_rows(amdo,dependo,erythro,ichthama, proto, unc, uns)
+data$Species<-gsub("_"," ",data$organism)
+data<-data %>% select(Species, organism, locus_name, virus_genus, sequenceID, Class)
+```
+
+Making loci list
+
+Adding on writing species names to file:
+```{r}
+list<-split(data, f=data$locus_name)
+```
+
+```{r}
+writeList<-function(table) {
+  species<-as_tibble(unique(table$Species))
+  if(length(species$value) > 1) {
+  write_tsv(species, col_names = FALSE, paste0("outputs/figure-3//lists/",unique(table$locus_name),".tsv"))
+  }
+}
+```
+
+```{r}
+lapply(list, writeList)
+```
+
+Time tree from timetree.org     
+
+```{r}
+tree<-read.tree("trees/hosts.nwk")
+t<-ggtree(tree)
+
+#Making tip ages = 0 
+t$data<-t$data %>% mutate(Age=max(x)-x)
+
+t + geom_tiplab(size=2) +
+  geom_treescale()+
+  xlim(0,500)+
+  geom_nodelab(aes(label=round(Age,2)), hjust=0, size=2)
+
+
+```
+
+
+
+
+```{r, warning=FALSE, message=FALSE}
+#Making "Taxa" for tip labs and calculate number of taxa
+#Exlude unassigned "NK" locus_names
+#filter to tips in tree
+treetips<-t$data %>% filter(isTip==TRUE) %>% select(label)
+
+df<-data %>% filter(locus_name != "NK") %>% unique() %>%
+  mutate(Delim=gsub(" ","_",Species)) %>%
+  filter(Delim %in% treetips$label) %>%
+  group_by(locus_name) %>% mutate(Taxa=paste(Delim, collapse=" "))  %>% mutate(Count=n())
+
+#getting min age of nodes
+df2<-df %>% mutate(node = as.numeric(ifelse(Count > 1, findMRCA(tree, tips=strsplit(Taxa, " ")[[1]]), NA)))
+df3<-left_join(df2, t$data, by="node")
+df3$Age<-replace_na(df3$Age, 0)
+
+
+#Summarize min age of nodes
+df3 %>% select(locus_name, Age) %>% unique()
+
+annotations<-df3 %>% select(locus_name, node, Age, x, y, Class, virus_genus) %>% unique()
+
+minAges<-annotations %>% rename(MinimumAge=Age) %>% select(virus_genus, locus_name, MinimumAge, Class)
+
+write_csv(minAges, "outputs/figure-3/parvoviridae-min-ages.csv")
+```
+
+## Annotating tree
+
+
+```{r}
+fact<-4
+bigdf<-left_join(data, t$data, by=c("organism"="label")) %>% select(-Class) %>%
+  drop_na() %>% #Some species not in timetree, subspecies added to newick string where appropriate
+  select(Species, organism, virus_genus, x, y, locus_name) %>%
+  unique() %>% select(-locus_name) %>% 
+  group_by(Species, organism, virus_genus, x, y) %>%
+  summarize(Count=n()) %>%
+  unique() %>%
+  mutate(newX = ifelse(virus_genus=="Amdoparvovirus", x+fact,
+                ifelse(virus_genus=="Dependoparvovirus", x+2*fact,
+                ifelse(virus_genus=="Erythroparvovirus", x+3*fact,
+                ifelse(virus_genus=="Ichthamaparvovirus", x+4*fact,
+                ifelse(virus_genus=="Protoparvovirus", x+5*fact,
+                ifelse(virus_genus=="Unclassified", x+6*fact)))))))
+
+```
+
+```{r}
+
+nodes<-filter(annotations, node != "NA")
+tips<-filter(annotations, Age == 0)
+tipSpecies<-df3 %>% filter(locus_name %in% tips$locus_name)
+
+
+v<-t + xlim(0,550)+
+  geom_point(data = nodes, aes(x=x, y=y, fill=virus_genus), size=4, alpha=0.75, pch=23, position = "jitter") +
+  geom_point(data= bigdf, aes(x=newX, y=y, fill=virus_genus, size=Count), alpha=0.75, pch=21) +
+  theme_tree2()+
+  theme(axis.title.x = element_text(size=14)) +
+  theme(legend.position = "right") +
+  scale_x_continuous(name="", breaks=c(373, 423, 473),
+                     labels=c(100,50,0) )+
+  coord_cartesian(xlim = c(373,550)) + #was 323
+  scale_fill_viridis_d(option = "inferno", name="Virus Genus") 
+
+v
+```
+
+
+
+Now we want to include the left half of the tree as a facet. 
+
+```{r}
+x<-t + 
+  xlim(0,550)+
+  geom_point(data = nodes, aes(x=x, y=y, fill=virus_genus), size=4, alpha=0.75, pch=23, position = "jitter") +
+  geom_point(data= bigdf, aes(x=newX, y=y, fill=virus_genus, size=Count), alpha=0.75, pch=21) +
+  theme_tree2()+
+  theme(axis.title.x = element_text(size=14)) +
+  theme(legend.position = "") +
+  scale_x_continuous(name="", breaks=c(73,173,273,373),
+                     labels=c(400,300,200,100)) +
+  coord_cartesian(xlim = c(0,323))  #was 373
+
+x
+```
+
+## Combine Plots
+
+```{r}
+ggarrange(x,v, nrow=1, ncol=2, widths=c(1,4))
+
+ggsave("outputs/figure-3/figure-3.pdf", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3.eps", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3.png", height=11, width=8.5)
+
+```
+
+## Clade labels
+
+```{r}
+
+ddf<-bind_rows(amdo,dependo,erythro,ichthama, proto, unc, uns) %>% rename(Order=host_order)
+dddf<-ddf %>% filter(organism %in% tree$tip.label)
+
+findMeANode<-function(Taxon) {
+  species <- dplyr::filter(dddf, Order == Taxon)
+  speciesNode <- findMRCA(tree, tips=species$organism)
+  return(speciesNode)
+}
+
+findMeANode("Carnivora")
+
+```
+
+
+```{r}
+
+orders<-dddf %>% ungroup %>% select(Order)
+ovector<-dddf$Order
+
+cnodes<-lapply(ovector, findMeANode)
+
+cnodes[sapply(cnodes, is.null)] <- NA
+
+n<-as_tibble(as.vector(unlist(cnodes)))
+
+cladelabels<-bind_cols(orders,n) %>% filter(value != "NA") %>% unique() %>% filter(Order!="Unclassified")
+cladetips<-bind_cols(orders,n)
+cladetips<-cladetips[is.na(cladetips$value),]
+
+ctips<-dddf  %>% filter(Order %in% cladetips$Order) %>% rename(label=organism) %>% left_join(t$data)
+
+```
+
+```{r}
+nn<-cladelabels$value
+ll<-cladelabels$Order
+off<-25
+```
+
+```{r}
+z <- t + 
+    # geom_text_repel(data=ctips, aes(x=x+9*fact, y=y, label=Order)) +
+    geom_segment(data=ctips, aes(x=x+fact, y=y, xend=x+8*fact, yend=y), alpha=0.5) +
+    xlim(0,550) +
+    geom_point(data = nodes, aes(x=x, y=y, fill=virus_genus), size=4, alpha=0.75, pch=23, position = "jitter") +
+    geom_point(data= bigdf, aes(x=newX, y=y, fill=virus_genus, size=Count), alpha=0.75, pch=21) +
+    theme_tree2()+
+    theme(axis.title.x = element_text(size=14)) +
+    theme(legend.position = "right") +
+      scale_x_continuous(name="", breaks=c(373, 423, 473),
+                     labels=c(100,50,0) )+
+     coord_cartesian(xlim = c(373,550)) +
+    scale_fill_viridis_d(option = "inferno", name="Virus Genus") + 
+    geom_text(data=ctips, aes(y=y, x=x+9*fact, label=Order, hjust=0)) +
+    geom_cladelabel(nn[1],ll[1], offset=off) +
+    geom_cladelabel(nn[2],ll[2], offset=off) +
+    geom_cladelabel(nn[3],ll[3], offset=off) +
+    geom_cladelabel(nn[4],ll[4], offset=off) +
+    geom_cladelabel(nn[5],ll[5], offset=off) +
+    geom_cladelabel(nn[6],ll[6], offset=off) +
+    geom_cladelabel(nn[7],ll[7], offset=off) +
+    geom_cladelabel(nn[8],ll[8], offset=off) +
+    geom_cladelabel(nn[9],ll[9], offset=off) +
+    geom_cladelabel(nn[10],ll[10], offset=off) +
+    geom_cladelabel(nn[11],ll[11], offset=off) +
+    geom_cladelabel(nn[12],ll[12], offset=off) +
+    geom_cladelabel(nn[13],ll[13], offset=off) +
+    geom_cladelabel(nn[14],ll[14], offset=off) +
+    geom_cladelabel(nn[15],ll[15], offset=off) +
+    geom_cladelabel(nn[16],ll[16], offset=off) +
+    geom_cladelabel(nn[17],ll[17], offset=off) +
+    geom_cladelabel(nn[18],ll[18], offset=off) +
+    geom_cladelabel(nn[19],ll[19], offset=off) 
+  
+z
+
+```
+
+```{r}
+ggarrange(x,z, nrow=1, ncol=2, widths=c(1,4))
+
+ggsave("outputs/figure-3/figure-3-orders.pdf", height=11, width=8.5)
+#ggsave("outputs/figure-3/figure-3-orders.eps", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3-orders.png", height=11, width=8.5)
+```
