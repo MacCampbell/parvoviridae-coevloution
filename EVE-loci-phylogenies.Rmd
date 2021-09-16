@@ -1,0 +1,137 @@
+---
+title: "EVE-loci-phylogenies"
+author: "Mac Campbell"
+date: "9/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(tidyverse)
+library(ggtree)
+library(phytools)
+library(Biostrings)
+library(msa)
+library(ggmsa)
+library(grid)
+library(gtable)
+```
+
+
+## Automating 
+
+_1_ Presentation of EVE loci trees    
+_2_ Presentation of host taxonomy    
+_3_ visualization of alignment     
+
+in outputs/eve-trees
+
+### Example
+
+
+```{r}
+#treeFile<-"~/github/Parvoviridae-GLUE/trees/eve-orthologs/EPV-DEPENDO-20-laurasiatheria.tre"
+treeFile<-"~/github/Parvoviridae-GLUE/trees/eve-orthologs/EPV-DEPENDO-22-laurasiatheria.tre"
+
+output<-gsub("~/github/Parvoviridae-GLUE/trees/eve-orthologs","outputs/eve-trees", treeFile)
+
+metafile<-gsub("tre$","figtree-annotations.tsv",treeFile)
+meta<-read_tsv(metafile)
+
+t<-read.tree(treeFile)
+t<-midpoint.root(t)
+
+  u2<-ggtree(t) %<+% meta 
+  u2$data<-mutate(u2$data, Supported = ifelse(as.numeric(label) > 95, "YES","NO"))
+  u2$data<-mutate(u2$data, 
+                  Supported90 = ifelse(as.numeric(label) <= 95 & as.numeric(label) >90, "YES","NO"))
+
+u3 <-  u2 +  geom_nodepoint(aes(subset = !isTip & Supported =="YES", label=Supported), 
+                  shape=21, fill="black", alpha=1.0, size=2) +
+   geom_nodepoint(aes(subset = !isTip & Supported90 =="YES", label=Supported90), 
+                  shape=21, fill="darkgrey", alpha=1.0, size=2) +
+   geom_tiplab(aes(label=sequenceID), align=TRUE, size=3) + 
+  #  xlim(0,sum(t$edge.length)) +
+    geom_treescale() +
+    ggtitle(gsub(".tre$","",gsub("outputs/eve-trees/","",output)))
+ u3
+ 
+```
+ 
+Apply facet with Taxonomy?
+
+```{r}
+#taxa<-u2$data %>% filter(isTip==TRUE)
+ 
+u4<-u3 + geom_tiplab(aes(label=host_order, color=host_order), align=TRUE,
+              linesize=0, linetype=NA, offset=sum(t$edge.length)/2.5) +
+  geom_tiplab(aes(label=host_family, color=host_family), align=TRUE,
+              linesize=0, linetype=NA, offset=sum(t$edge.length)/1.5)  +
+  theme(legend.position = "")
+ 
+u4
+```
+ 
+ Locating corresponding alignment
+
+```{r} 
+#file<-file.path("~/github/parvoviridae-coevolution/outputs/eve-trees","dependo.20-laurasiatheria.aln.fna")
+#Doesn't work? ARRGGGHHH CLASSIC MAC LINE BREAKS
+
+#file<-file.path("/Users","mac","github","Parvoviridae-GLUE","alignments","tips","dependo","dependo.22-laurasiatheria.aln.fna")
+#Doesn't work? ARRGGGHHH CLASSIC MAC LINE BREAKS
+
+file<-file.path("~/github/parvoviridae-coevolution/outputs/eve-trees","dependo.22-laurasiatheria.aln.fna")
+
+
+ggmsa(file, start = 1, end = 20, color = 'Chemistry_NT', seq_name = TRUE)
+```
+
+```{r}
+x <- readDNAStringSet(file)
+data<-tidy_msa(x)
+
+
+data$name<-gsub("-Dependo-\\d+\\|","",data$name)
+#naming locus
+data$name<-paste0("dependo.22-",data$name)
+data$name<-str_trim(data$name)
+
+#dat<-filter(data, name %in% u4$data$sequenceID) %>% as_tibble()
+
+#get label prefix
+#prefix<-gsub("dependo.20-Equus_asinus_somalicus","",u4$data$label[1])
+prefix<-gsub("dependo.22-Hyaena_hyaena","",u4$data$label[1])
+data$name<-paste0(prefix,data$name)
+
+
+```
+
+mac says adding x limits screws up everything. 
+
+```{r}
+n<-u4 +
+  geom_facet(geom = geom_msa, data = data, panel = "MSA", font = NULL, color = "Chemistry_NT",
+             border = NA) +
+  xlim_tree(sum(t$edge.length)) 
+
+```
+
+```{r}
+gt = ggplot_gtable(ggplot_build(n))
+
+gtable_show_layout(gt) # will show you the layout - very handy function
+gt # see plot layout in table format
+```
+to change widths
+```{r}
+gt$widths[7] = .5*gt$widths[7] 
+pdf(paste0(output,".align.pdf"), width=15, height=8.5)
+grid.draw(gt)
+dev.off()
+```
+
+
