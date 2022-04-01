@@ -68,12 +68,18 @@ Class<-c("Sarcopterygii","Actinopterygii","Actinopterygii","Actinopterygii","Cho
 host_order<-c("Coelacanthiformes","Tetraodontiformes","Tetraodontiformes","Tetraodontiformes","Carcharhiniformes")
 uns<-cbind(organism, sequenceID, locus_name, Class, host_order) %>% as_tibble() %>% mutate(virus_genus="Unclassified")
 
+## Adding in an unknown for Euarchontoglires - Lagomorpha, Primates, Rodentia
+uns2<-bind_rows(amdo,dependo,erythro,ichthama, proto) %>% 
+  filter(host_order %in% c("Rodentia","Primates","Lagomorpha")) %>% 
+  select(organism,Class,host_order) %>% unique() %>% # make a dummy locus
+  mutate(sequenceID="Unknown.4-Euachontoglires", locus_name="Unknown.4-Euachontoglires", virus_genus="Unclassified")
+
 ```
 
 Merging    
 
 ```{r}
-data<-bind_rows(amdo,dependo,erythro,ichthama, proto, unc, uns)
+data<-bind_rows(amdo,dependo,erythro,ichthama, proto, unc, uns, uns2)
 data$Species<-gsub("_"," ",data$organism)
 data<-data %>% select(Species, organism, locus_name, virus_genus, sequenceID, Class)
 ```
@@ -211,9 +217,9 @@ x
 ```{r}
 ggarrange(x,v, nrow=1, ncol=2, widths=c(1,4))
 
-ggsave("outputs/figure-3/figure-3.pdf", height=11, width=8.5)
-ggsave("outputs/figure-3/figure-3.eps", height=11, width=8.5)
-ggsave("outputs/figure-3/figure-3.png", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3-unlabeled.pdf", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3-unlabeled.eps", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3-unlabeled.png", height=11, width=8.5)
 
 ```
 
@@ -302,7 +308,7 @@ z
 ```{r}
 ggarrange(x,z, nrow=1, ncol=2, widths=c(1,4))
 
-ggsave("outputs/figure-3/figure-3-orders.pdf", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3-orders-04012022.pdf", height=11, width=8.5)
 #ggsave("outputs/figure-3/figure-3-orders.eps", height=11, width=8.5)
-ggsave("outputs/figure-3/figure-3-orders.png", height=11, width=8.5)
+ggsave("outputs/figure-3/figure-3-orders-04012022.png", height=11, width=8.5)
 ```
